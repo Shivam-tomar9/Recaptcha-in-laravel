@@ -1,0 +1,104 @@
+Google’s ReCaptcha is a system designed to check whether a user on a website is human or not and therefore prevent bots from engaging in unwanted behaviour on the site.
+
+undefined
+Following on from our article on creating Bootstrap 4 contact forms and also our article on creating contact forms in Laravel, this guide will explain how to integrate Google’s ReCaptcha system with your website, we’ll be using the example of a contact form.
+
+Prerequisites:
+We’ll assume you already have a Laravel project with a functioning contact form set up in this recommended way:
+
+A view containing your contact form
+A form request containing your validation rules
+A controller that contains methods for displaying the form and processing the data
+A notification for formatting the received email
+If you don’t, then check out our article to get you up and running.
+
+Setting up ReCaptcha:
+The first thing we’ll need is a site key and secret key from Google so we are authorised to use Google’s ReCaptcha service.
+
+Go to the ReCaptcha Admin Console to add your site details and generate your keys.
+
+Add a descriptive label for your site, select reCAPTCHA v2 (we’re focussing on v2 for this article, we’ll go into using v3 in a future post), add your domain(s) and email address(es) and hit submit, and your ReCaptcha keys will be displayed.
+
+In your Laravel project’s .env file, add the following two variables, obviously updating the keys with your own:
+
+GOOGLE_RECAPTCHA_KEY=ABCDE6abcdef
+GOOGLE_RECAPTCHA_SECRET=ABCDE6abcdef
+Tip: If you’re testing locally, use these two keys in your development environment to check the ReCaptcha is working:
+
+GOOGLE_RECAPTCHA_KEY=6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI
+GOOGLE_RECAPTCHA_SECRET=6LeIxAcTAAAAAGG-vFI1TnRWxMZNFuojJ4WifJWe
+You’ll see a message telling you the reCAPTCHA is for testing purposes only.
+
+Optionally it’s recommended you add config keys to reference your .env file before you go to production so you can cache the config to improve site speed.
+
+To do this, open config/services.php and add the following to the array:
+
+'recaptcha' => [
+'key' => env('GOOGLE_RECAPTCHA_KEY'),
+'secret' => env('GOOGLE_RECAPTCHA_SECRET'),
+],
+This means we can now access these keys via config('services.recaptcha.secret') and config('services.recaptcha.key').
+
+Now we need to create a custom Validator, so create app/Validators/ReCaptcha.php and add the following code:
+
+<?php
+namespace App\Validators;
+use GuzzleHttp\Client;
+class ReCaptcha
+{
+    public function validate($attribute, $value, $parameters, $validator)
+    {
+        $client = new Client;
+        $response = $client->post(
+            'https://www.google.com/recaptcha/api/siteverify',
+            [
+                'form_params' =>
+                    [
+                        'secret' => config('services.recaptcha.secret'),
+                        'response' => $value
+                    ]
+            ]
+        );
+        $body = json_decode((string)$response->getBody());
+        return $body->success;
+    }
+}
+Now we need to register the validator in the boot() method of the AppServiceProvider, so go to app/Providers/AppServiceProvider.php and add the following in the boot() method:
+
+Validator::extend('recaptcha', 'App\\Validators\\ReCaptcha@validate');
+We now need to update our contact form view to use the validator code, so within your <form> add the following:
+
+@if(config('services.recaptcha.key'))
+    <div class="g-recaptcha"
+        data-sitekey="{{config('services.recaptcha.key')}}">
+    </div>
+@endif
+We also have to add the JS from Google for the ReCaptcha, so add the following script to the <head> of your view, or in the <head> of your layout file:
+
+<script src='https://www.google.com/recaptcha/api.js'></script>
+Nearly done! Finally we need to add the validation rule and messages to our form request.
+
+The rule we need is:
+
+'g-recaptcha-response' => 'required|recaptcha'
+Here’s an example of how it can be used with custom messages in a form request:
+
+public function rules()
+    {
+        return [
+             'name' => 'required|max: 255',
+             'email' => 'required|email|max: 255',
+             'message' => 'required',
+             'g-recaptcha-response' => 'required|recaptcha'
+         ];
+    }
+public function messages()
+    {
+        return [
+       'required' => 'The :attribute field is required.',
+       'email' => 'The :attribute must use a valid email address',
+       'g-recaptcha-response.recaptcha' => 'Captcha verification failed',
+       'g-recaptcha-response.required' => 'Please complete the captcha'
+       ];
+    }
+That’s it! Now try completing the form with and without completing the captcha and make sure you get the expected results. If so you should have taken a step towards protecting your site from automated bots.
